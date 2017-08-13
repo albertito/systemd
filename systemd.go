@@ -1,5 +1,6 @@
-// Package systemd implements utility functions to interact with systemd.
-package systemd
+// Package systemd implements a way to get network listeners from systemd,
+// similar to C's sd_listen_fds(3) and sd_listen_fds_with_names(3).
+package systemd // import "blitiri.com.ar/go/systemd"
 
 import (
 	"errors"
