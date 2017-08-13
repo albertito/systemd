@@ -8,6 +8,8 @@ implementing a way to get network listeners from systemd, similar
 to C's `sd_listen_fds()` and `sd_listen_fds_with_names()`
 ([man](https://www.freedesktop.org/software/systemd/man/sd_listen_fds.html)).
 
+Supports named file descriptors, which is useful if your daemon needs to be
+able to tell the different ports apart (e.g. http vs https).
 
 It is used by daemons such as [chasquid](https://blitiri.com.ar/p/chasquid/)
 to listen on privileged ports without needing to run as root.
