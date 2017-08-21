@@ -123,3 +123,51 @@ func Listeners() (map[string][]net.Listener, error) {
 	parse()
 	return listeners, parseError
 }
+
+// OneListener returns a listener for the first systemd socket with the given
+// name. If there are none, the listener and error will both be nil. An error
+// will be returned only if there were issues parsing the file descriptors.
+//
+// This function can be convenient for simple callers where you know there's
+// only one file descriptor being passed with the given name.
+//
+// This is a convenience function built on top of Listeners().
+func OneListener(name string) (net.Listener, error) {
+	parse()
+	if parseError != nil {
+		return nil, parseError
+	}
+
+	lis := listeners[name]
+	if len(lis) < 1 {
+		return nil, nil
+	}
+	return lis[0], nil
+}
+
+// Listen returns a listener for the given address, similar to net.Listen.
+//
+// If the address begins with "&" it is interpreted as a systemd socket being
+// passed.  For example, using "&http" would mean we expect a systemd socket
+// passed to us, named with "FileDescriptorName=http" in its unit.
+//
+// Otherwise, it uses net.Listen to create a new listener with the given net
+// and local address.
+//
+// This function can be convenient for simple callers where you get the
+// address from a user, and want to let them specify either "use systemd" or a
+// normal address without too much additional complexity.
+//
+// This is a convenience function built on top of Listeners().
+func Listen(netw, laddr string) (net.Listener, error) {
+	if strings.HasPrefix(laddr, "&") {
+		name := laddr[1:]
+		lis, err := OneListener(name)
+		if lis == nil && err == nil {
+			err = fmt.Errorf("systemd socket %q not found", name)
+		}
+		return lis, err
+	} else {
+		return net.Listen(netw, laddr)
+	}
+}

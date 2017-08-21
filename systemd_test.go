@@ -56,6 +56,9 @@ func TestBadEnvironment(t *testing.T) {
 			t.Logf("Case: LISTEN_PID=%q  LISTEN_FDS=%q LISTEN_FDNAMES=%q", c.pid, c.fds, c.names)
 			t.Errorf("Unexpected result: %v // %v", ls, err)
 		}
+		if ls, err := OneListener("name"); err == nil {
+			t.Errorf("Unexpected result: %v // %v", ls, err)
+		}
 	}
 }
 
@@ -68,6 +71,10 @@ func TestWrongPID(t *testing.T) {
 
 	setenv(strconv.Itoa(pid), "4")
 	if _, err := Listeners(); err != ErrPIDMismatch {
+		t.Errorf("Did not fail with PID mismatch: %v", err)
+	}
+
+	if _, err := OneListener("name"); err != ErrPIDMismatch {
 		t.Errorf("Did not fail with PID mismatch: %v", err)
 	}
 }
@@ -126,6 +133,15 @@ func TestOneSocket(t *testing.T) {
 			l.Addr(), ls[0].Addr())
 	}
 
+	oneL, err := OneListener("name")
+	if err != nil {
+		t.Errorf("OneListener error: %v", err)
+	}
+	if !sameAddr(oneL.Addr(), l.Addr()) {
+		t.Errorf("OneListener address mismatch, expected %#v, got %#v",
+			l.Addr(), ls[0].Addr())
+	}
+
 	if os.Getenv("LISTEN_PID") != "" || os.Getenv("LISTEN_FDS") != "" {
 		t.Errorf("Failed to reset the environment")
 	}
@@ -172,9 +188,36 @@ func TestManySockets(t *testing.T) {
 			l1.Addr(), ls[1].Addr())
 	}
 
+	oneL, _ := OneListener("name1")
+	if !sameAddr(oneL.Addr(), l0.Addr()) {
+		t.Errorf("Listener 0 address mismatch, expected %#v, got %#v",
+			oneL.Addr(), ls[0].Addr())
+	}
+
 	if os.Getenv("LISTEN_PID") != "" ||
 		os.Getenv("LISTEN_FDS") != "" ||
 		os.Getenv("LISTEN_FDNAMES") != "" {
 		t.Errorf("Failed to reset the environment")
 	}
+}
+
+func TestListen(t *testing.T) {
+	orig := newListener(t)
+	firstFD = listenerFd(t, orig)
+	setenv(strconv.Itoa(os.Getpid()), "1", "name")
+
+	l, err := Listen("tcp", "&name")
+	if err != nil {
+		t.Errorf("Listen failed: %v", err)
+	}
+	if !sameAddr(l.Addr(), orig.Addr()) {
+		t.Errorf("Listener 0 address mismatch, expected %#v, got %#v",
+			l.Addr(), orig.Addr())
+	}
+
+	l, err = Listen("tcp", ":0")
+	if err != nil {
+		t.Errorf("Listen failed: %v", err)
+	}
+	t.Logf("listener created at %v", l.Addr())
 }
