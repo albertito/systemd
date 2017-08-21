@@ -13,6 +13,8 @@ func setenv(pid, fds string, names ...string) {
 	os.Setenv("LISTEN_PID", pid)
 	os.Setenv("LISTEN_FDS", fds)
 	os.Setenv("LISTEN_FDNAMES", strings.Join(names, ":"))
+	listeners = nil
+	parseError = nil
 }
 
 func TestEmptyEnvironment(t *testing.T) {
