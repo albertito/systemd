@@ -10,6 +10,7 @@ import (
 	"testing"
 )
 
+// setenv prepares the environment and resets the internal state.
 func setenv(pid, fds string, names ...string) {
 	os.Setenv("LISTEN_PID", pid)
 	os.Setenv("LISTEN_FDS", fds)
@@ -18,6 +19,37 @@ func setenv(pid, fds string, names ...string) {
 	listeners = nil
 	parseError = nil
 	listenError = nil
+}
+
+// newListener creates a TCP listener.
+func newListener(t *testing.T) *net.TCPListener {
+	t.Helper()
+	addr := &net.TCPAddr{
+		Port: 0,
+	}
+
+	l, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		t.Fatalf("Could not create TCP listener: %v", err)
+	}
+
+	return l
+}
+
+// listenerFd returns a file descriptor for the listener.
+// Note it is a NEW file descriptor, not the original one.
+func listenerFd(t *testing.T, l *net.TCPListener) int {
+	t.Helper()
+	f, err := l.File()
+	if err != nil {
+		t.Fatalf("Could not get TCP listener file: %v", err)
+	}
+
+	return int(f.Fd())
+}
+
+func sameAddr(a, b net.Addr) bool {
+	return a.Network() == b.Network() && a.String() == b.String()
 }
 
 func TestEmptyEnvironment(t *testing.T) {
@@ -144,35 +176,6 @@ func TestBadFDs(t *testing.T) {
 		t.Errorf("File descriptor %d != expected %d (%v)",
 			got.Fd(), f.Fd(), got)
 	}
-}
-
-// newListener creates a TCP listener.
-func newListener(t *testing.T) *net.TCPListener {
-	addr := &net.TCPAddr{
-		Port: 0,
-	}
-
-	l, err := net.ListenTCP("tcp", addr)
-	if err != nil {
-		t.Fatalf("Could not create TCP listener: %v", err)
-	}
-
-	return l
-}
-
-// listenerFd returns a file descriptor for the listener.
-// Note it is a NEW file descriptor, not the original one.
-func listenerFd(t *testing.T, l *net.TCPListener) int {
-	f, err := l.File()
-	if err != nil {
-		t.Fatalf("Could not get TCP listener file: %v", err)
-	}
-
-	return int(f.Fd())
-}
-
-func sameAddr(a, b net.Addr) bool {
-	return a.Network() == b.Network() && a.String() == b.String()
 }
 
 func TestOneSocket(t *testing.T) {

@@ -6,7 +6,7 @@ dist: bionic
 go_import_path: blitiri.com.ar/go/systemd
 
 go:
-    - 1.7
+    - 1.9
     - stable
     - master
 
