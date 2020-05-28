@@ -105,6 +105,26 @@ func TestNoFDs(t *testing.T) {
 	if ls, err := Files(); len(ls) != 0 || err != nil {
 		t.Errorf("Got a non-empty result: %v // %v", ls, err)
 	}
+	if l, err := OneListener("nothing"); l != nil || err != nil {
+		t.Errorf("Unexpected result: %v // %v", l, err)
+	}
+	if l, err := Listen("tcp", "&nothing"); l != nil || err == nil {
+		t.Errorf("Unexpected result: %v // %v", l, err)
+	}
+}
+
+func TestBadFDs(t *testing.T) {
+	f, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("Failed to open /dev/null: %v", err)
+	}
+	defer f.Close()
+
+	setenv(strconv.Itoa(os.Getpid()), "1")
+	firstFD = int(f.Fd())
+	if ls, err := Listeners(); len(ls) != 1 || err == nil {
+		t.Errorf("Got a non-empty result: %v // %v", ls, err)
+	}
 }
 
 // newListener creates a TCP listener.
