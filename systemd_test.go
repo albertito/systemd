@@ -17,6 +17,7 @@ func setenv(pid, fds string, names ...string) {
 	files = nil
 	listeners = nil
 	parseError = nil
+	listenError = nil
 }
 
 func TestEmptyEnvironment(t *testing.T) {
@@ -54,7 +55,6 @@ func TestBadEnvironment(t *testing.T) {
 		{ourPID, "a", []string{"name"}},           // Invalid number of fds.
 		{"1", "1", []string{"name"}},              // PID != ourselves.
 		{ourPID, "1", []string{"name1", "name2"}}, // Too many names.
-		{ourPID, "1", []string{}},                 // Not enough names.
 	}
 	for _, c := range cases {
 		setenv(c.pid, c.fds, c.names...)
@@ -122,8 +122,26 @@ func TestBadFDs(t *testing.T) {
 
 	setenv(strconv.Itoa(os.Getpid()), "1")
 	firstFD = int(f.Fd())
-	if ls, err := Listeners(); len(ls) != 1 || err == nil {
+
+	if ls, err := Listeners(); len(ls) != 0 || err == nil {
 		t.Errorf("Got a non-empty result: %v // %v", ls, err)
+	}
+
+	if l, err := OneListener(""); l != nil || err == nil {
+		t.Errorf("Got a non-empty result: %v // %v", l, err)
+	}
+
+	// It's not a bad FD as far as Files() is concerned.
+	fs, err := Files()
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	if len(fs) != 1 || len(fs[""]) != 1 {
+		t.Errorf("Unexpected result: %v", fs)
+	}
+	if got := fs[""][0]; got.Fd() != f.Fd() {
+		t.Errorf("File descriptor %d != expected %d (%v)",
+			got.Fd(), f.Fd(), got)
 	}
 }
 
@@ -284,6 +302,29 @@ func TestManySockets(t *testing.T) {
 		os.Getenv("LISTEN_FDNAMES") != "" {
 		t.Errorf("Failed to reset the environment")
 	}
+
+	// Test that things also work with LISTEN_FDNAMES unset.
+	setenv(strconv.Itoa(os.Getpid()), "2")
+	os.Unsetenv("LISTEN_FDNAMES")
+	{
+		lsMap, err := Listeners()
+		if err != nil || len(lsMap) != 1 || len(lsMap[""]) != 2 {
+			t.Fatalf("Got an invalid result: %v // %v", lsMap, err)
+		}
+
+		ls := []net.Listener{
+			lsMap[""][0],
+			lsMap[""][1],
+		}
+
+		for i := 0; i < 2; i++ {
+			if !sameAddr(ls[i].Addr(), expected[i].Addr()) {
+				t.Errorf("Listener %d address mismatch, expected %#v, got %#v",
+					i, ls[i].Addr(), expected[i].Addr())
+			}
+		}
+	}
+
 }
 
 func TestListen(t *testing.T) {

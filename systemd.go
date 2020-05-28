@@ -27,6 +27,7 @@ var (
 var files map[string][]*os.File
 var listeners map[string][]net.Listener
 var parseError error
+var listenError error
 var mutex sync.Mutex
 
 // parse files, updating the global state.
@@ -69,13 +70,19 @@ func parse() {
 		return
 	}
 
-	// We should have as many names as we have descriptors.
-	// Note that if we have no descriptors, fdNames will be [""] (due to how
-	// strings.Split works), so we consider that special case.
-	if nfds > 0 && (fdNamesStr == "" || len(fdNames) != nfds) {
-		parseError = fmt.Errorf(
-			"Incorrect LISTEN_FDNAMES, have you set FileDescriptorName?")
-		return
+	// If LISTEN_FDNAMES is set at all, it should have as many names as we
+	// have descriptors. If it isn't set, then we map them all to "".
+	if fdNamesStr == "" {
+		fdNames = []string{}
+		for i := 0; i < nfds; i++ {
+			fdNames = append(fdNames, "")
+		}
+	} else {
+		if nfds > 0 && len(fdNames) != nfds {
+			parseError = fmt.Errorf(
+				"Incorrect LISTEN_FDNAMES, have you set FileDescriptorName?")
+			return
+		}
 	}
 
 	files = map[string][]*os.File{}
@@ -92,12 +99,15 @@ func parse() {
 		f := os.NewFile(uintptr(fd), sysName)
 		files[name] = append(files[name], f)
 
+		// Note this can fail for non-TCP listeners, so we put the error in a
+		// separate variable.
 		lis, err := net.FileListener(f)
 		if err != nil {
-			parseError = fmt.Errorf(
+			listenError = fmt.Errorf(
 				"Error making listener out of fd %d: %v", fd, err)
+		} else {
+			listeners[name] = append(listeners[name], lis)
 		}
-		listeners[name] = append(listeners[name], lis)
 	}
 
 	// Remove them from the environment, to prevent accidental reuse (by
@@ -116,6 +126,9 @@ func parse() {
 // systemd socket unit. Multiple socket units can have the same name, hence
 // the slice of listeners for each name.
 //
+// If the "FileDescriptorName=" option is not used, then all file descriptors
+// are mapped to the "" name.
+//
 // Ideally you should not need to call this more than once. If you do, the
 // same listeners will be returned, as repeated calls to this function will
 // return the same results: the parsing is done only once, and the results are
@@ -125,7 +138,10 @@ func parse() {
 // how the passing works.
 func Listeners() (map[string][]net.Listener, error) {
 	parse()
-	return listeners, parseError
+	if parseError != nil {
+		return listeners, parseError
+	}
+	return listeners, listenError
 }
 
 // OneListener returns a net.Listener for the first systemd socket with the
@@ -141,6 +157,9 @@ func OneListener(name string) (net.Listener, error) {
 	parse()
 	if parseError != nil {
 		return nil, parseError
+	}
+	if listenError != nil {
+		return nil, listenError
 	}
 
 	lis := listeners[name]
@@ -184,6 +203,9 @@ func Listen(netw, laddr string) (net.Listener, error) {
 // The file descriptor name comes from the "FileDescriptorName=" option in the
 // systemd socket unit. Multiple socket units can have the same name, hence
 // the slice of listeners for each name.
+//
+// If the "FileDescriptorName=" option is not used, then all file descriptors
+// are mapped to the "" name.
 //
 // Ideally you should not need to call this more than once. If you do, the
 // same files will be returned, as repeated calls to this function will return
