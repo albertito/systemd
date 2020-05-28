@@ -2,6 +2,7 @@
 # blitiri.com.ar/go/systemd
 
 [![GoDoc](https://godoc.org/blitiri.com.ar/go/systemd?status.svg)](https://godoc.org/blitiri.com.ar/go/systemd)
+[![Build Status](https://travis-ci.org/albertito/systemd.svg?branch=master)](https://travis-ci.org/albertito/systemd)
 
 [systemd](https://godoc.org/blitiri.com.ar/go/systemd) is a Go package
 implementing a way to get network listeners from systemd, similar
@@ -27,10 +28,8 @@ for _, l := range listeners["service.socket"] {
 
 ## Status
 
-The API should be considered stable.
-
-Branch v1 will only have backwards-compatible changes made to it.
-There are no plans for v2 at the moment.
+The API should be considered stable, and no backwards-incompatible changes are
+expected.
 
 
 ## Contact
