@@ -22,21 +22,23 @@ var (
 	firstFD = 3
 )
 
-// Keep a single global map of listeners, to avoid repeatedly parsing which
-// can be problematic (see parse).
+// Keep a single global map of files/listeners, to avoid repeatedly parsing
+// which can be problematic (see parse).
+var files map[string][]*os.File
 var listeners map[string][]net.Listener
 var parseError error
 var mutex sync.Mutex
 
-// parse listeners, updating the global state.
+// parse files, updating the global state.
 // This function messes with file descriptors and environment, so it is not
 // idempotent and must be called only once. For the callers' convenience, we
-// save the listeners map globally and reuse it on the user-visible functions.
+// save the files and listener maps globally, and reuse them on the
+// user-visible functions.
 func parse() {
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	if listeners != nil {
+	if files != nil {
 		return
 	}
 
@@ -76,6 +78,7 @@ func parse() {
 		return
 	}
 
+	files = map[string][]*os.File{}
 	listeners = map[string][]net.Listener{}
 
 	for i := 0; i < nfds; i++ {
@@ -86,13 +89,14 @@ func parse() {
 		name := fdNames[i]
 
 		sysName := fmt.Sprintf("[systemd-fd-%d-%v]", fd, name)
-		lis, err := net.FileListener(os.NewFile(uintptr(fd), sysName))
+		f := os.NewFile(uintptr(fd), sysName)
+		files[name] = append(files[name], f)
+
+		lis, err := net.FileListener(f)
 		if err != nil {
 			parseError = fmt.Errorf(
 				"Error making listener out of fd %d: %v", fd, err)
-			return
 		}
-
 		listeners[name] = append(listeners[name], lis)
 	}
 
@@ -170,4 +174,15 @@ func Listen(netw, laddr string) (net.Listener, error) {
 	} else {
 		return net.Listen(netw, laddr)
 	}
+}
+
+// Files returns a map of files for the file descriptors passed by
+// systemd via environment variables.
+//
+// Normally you would use Listeners instead; however, this is useful if you
+// need more fine-grained control over listener creation, for example if you
+// need to create packet connections from them.
+func Files() (map[string][]*os.File, error) {
+	parse()
+	return files, parseError
 }

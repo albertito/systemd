@@ -1,6 +1,7 @@
 package systemd
 
 import (
+	"fmt"
 	"math/rand"
 	"net"
 	"os"
@@ -13,6 +14,7 @@ func setenv(pid, fds string, names ...string) {
 	os.Setenv("LISTEN_PID", pid)
 	os.Setenv("LISTEN_FDS", fds)
 	os.Setenv("LISTEN_FDNAMES", strings.Join(names, ":"))
+	files = nil
 	listeners = nil
 	parseError = nil
 }
@@ -29,6 +31,11 @@ func TestEmptyEnvironment(t *testing.T) {
 		if ls, err := Listeners(); ls != nil || err != nil {
 			t.Logf("Case: LISTEN_PID=%q  LISTEN_FDS=%q", c.pid, c.fds)
 			t.Errorf("Unexpected result: %v // %v", ls, err)
+		}
+
+		if fs, err := Files(); fs != nil || err != nil {
+			t.Logf("Case: LISTEN_PID=%q  LISTEN_FDS=%q", c.pid, c.fds)
+			t.Errorf("Unexpected result: %v // %v", fs, err)
 		}
 	}
 }
@@ -53,11 +60,17 @@ func TestBadEnvironment(t *testing.T) {
 		setenv(c.pid, c.fds, c.names...)
 
 		if ls, err := Listeners(); err == nil {
-			t.Logf("Case: LISTEN_PID=%q  LISTEN_FDS=%q LISTEN_FDNAMES=%q", c.pid, c.fds, c.names)
+			t.Logf("Case: LISTEN_PID=%q  LISTEN_FDS=%q LISTEN_FDNAMES=%q",
+				c.pid, c.fds, c.names)
 			t.Errorf("Unexpected result: %v // %v", ls, err)
 		}
 		if ls, err := OneListener("name"); err == nil {
 			t.Errorf("Unexpected result: %v // %v", ls, err)
+		}
+		if fs, err := Files(); err == nil {
+			t.Logf("Case: LISTEN_PID=%q  LISTEN_FDS=%q LISTEN_FDNAMES=%q",
+				c.pid, c.fds, c.names)
+			t.Errorf("Unexpected result: %v // %v", fs, err)
 		}
 	}
 }
@@ -77,11 +90,19 @@ func TestWrongPID(t *testing.T) {
 	if _, err := OneListener("name"); err != ErrPIDMismatch {
 		t.Errorf("Did not fail with PID mismatch: %v", err)
 	}
+
+	if _, err := Files(); err != ErrPIDMismatch {
+		t.Errorf("Did not fail with PID mismatch: %v", err)
+	}
 }
 
 func TestNoFDs(t *testing.T) {
 	setenv(strconv.Itoa(os.Getpid()), "0")
 	if ls, err := Listeners(); len(ls) != 0 || err != nil {
+		t.Errorf("Got a non-empty result: %v // %v", ls, err)
+	}
+
+	if ls, err := Files(); len(ls) != 0 || err != nil {
 		t.Errorf("Got a non-empty result: %v // %v", ls, err)
 	}
 }
@@ -121,25 +142,43 @@ func TestOneSocket(t *testing.T) {
 
 	setenv(strconv.Itoa(os.Getpid()), "1", "name")
 
-	lsMap, err := Listeners()
-	if err != nil || len(lsMap) != 1 {
-		t.Fatalf("Got an invalid result: %v // %v", lsMap, err)
+	{
+		lsMap, err := Listeners()
+		if err != nil || len(lsMap) != 1 {
+			t.Fatalf("Got an invalid result: %v // %v", lsMap, err)
+		}
+
+		ls := lsMap["name"]
+		if !sameAddr(ls[0].Addr(), l.Addr()) {
+			t.Errorf("Listener 0 address mismatch, expected %#v, got %#v",
+				l.Addr(), ls[0].Addr())
+		}
+
+		oneL, err := OneListener("name")
+		if err != nil {
+			t.Errorf("OneListener error: %v", err)
+		}
+		if !sameAddr(oneL.Addr(), l.Addr()) {
+			t.Errorf("OneListener address mismatch, expected %#v, got %#v",
+				l.Addr(), ls[0].Addr())
+		}
 	}
 
-	ls := lsMap["name"]
+	{
+		fsMap, err := Files()
+		if err != nil || len(fsMap) != 1 || len(fsMap["name"]) != 1 {
+			t.Fatalf("Got an invalid result: %v // %v", fsMap, err)
+		}
 
-	if !sameAddr(ls[0].Addr(), l.Addr()) {
-		t.Errorf("Listener 0 address mismatch, expected %#v, got %#v",
-			l.Addr(), ls[0].Addr())
-	}
-
-	oneL, err := OneListener("name")
-	if err != nil {
-		t.Errorf("OneListener error: %v", err)
-	}
-	if !sameAddr(oneL.Addr(), l.Addr()) {
-		t.Errorf("OneListener address mismatch, expected %#v, got %#v",
-			l.Addr(), ls[0].Addr())
+		f := fsMap["name"][0]
+		flis, err := net.FileListener(f)
+		if err != nil {
+			t.Errorf("File was not a listener: %v", err)
+		}
+		if !sameAddr(flis.Addr(), l.Addr()) {
+			t.Errorf("Listener 0 address mismatch, expected %#v, got %#v",
+				l.Addr(), flis.Addr())
+		}
 	}
 
 	if os.Getenv("LISTEN_PID") != "" || os.Getenv("LISTEN_FDS") != "" {
@@ -164,34 +203,60 @@ func TestManySockets(t *testing.T) {
 		t.Logf("Looping for FDs: %d %d", f0, f1)
 	}
 
+	expected := []*net.TCPListener{l0, l1}
+
 	firstFD = f0
 
 	setenv(strconv.Itoa(os.Getpid()), "2", "name1", "name2")
 
-	lsMap, err := Listeners()
-	if err != nil || len(lsMap) != 2 {
-		t.Fatalf("Got an invalid result: %v // %v", lsMap, err)
+	{
+		lsMap, err := Listeners()
+		if err != nil || len(lsMap) != 2 {
+			t.Fatalf("Got an invalid result: %v // %v", lsMap, err)
+		}
+
+		ls := []net.Listener{
+			lsMap["name1"][0],
+			lsMap["name2"][0],
+		}
+
+		for i := 0; i < 2; i++ {
+			if !sameAddr(ls[i].Addr(), expected[i].Addr()) {
+				t.Errorf("Listener %d address mismatch, expected %#v, got %#v",
+					i, ls[i].Addr(), expected[i].Addr())
+			}
+		}
+
+		oneL, _ := OneListener("name1")
+		if !sameAddr(oneL.Addr(), expected[0].Addr()) {
+			t.Errorf("OneListener address mismatch, expected %#v, got %#v",
+				oneL.Addr(), expected[0].Addr())
+		}
 	}
 
-	ls := []net.Listener{
-		lsMap["name1"][0],
-		lsMap["name2"][0],
-	}
+	{
+		fsMap, err := Files()
+		if err != nil || len(fsMap) != 2 {
+			t.Fatalf("Got an invalid result: %v // %v", fsMap, err)
+		}
 
-	if !sameAddr(ls[0].Addr(), l0.Addr()) {
-		t.Errorf("Listener 0 address mismatch, expected %#v, got %#v",
-			l0.Addr(), ls[0].Addr())
-	}
+		for i := 0; i < 2; i++ {
+			name := fmt.Sprintf("name%d", i+1)
+			fs := fsMap[name]
+			if len(fs) != 1 {
+				t.Errorf("fsMap[%q] = %v had %d entries, expected 1",
+					name, fs, len(fs))
+			}
 
-	if !sameAddr(ls[1].Addr(), l1.Addr()) {
-		t.Errorf("Listener 1 address mismatch, expected %#v, got %#v",
-			l1.Addr(), ls[1].Addr())
-	}
-
-	oneL, _ := OneListener("name1")
-	if !sameAddr(oneL.Addr(), l0.Addr()) {
-		t.Errorf("Listener 0 address mismatch, expected %#v, got %#v",
-			oneL.Addr(), ls[0].Addr())
+			flis, err := net.FileListener(fs[0])
+			if err != nil {
+				t.Errorf("File was not a listener: %v", err)
+			}
+			if !sameAddr(flis.Addr(), expected[i].Addr()) {
+				t.Errorf("Listener %d address mismatch, expected %#v, got %#v",
+					i, flis.Addr(), expected[i].Addr())
+			}
+		}
 	}
 
 	if os.Getenv("LISTEN_PID") != "" ||
