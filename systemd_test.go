@@ -44,6 +44,7 @@ func TestEmptyEnvironment(t *testing.T) {
 func TestBadEnvironment(t *testing.T) {
 	// Create a listener so we have something to reference.
 	l := newListener(t)
+	defer l.Close()
 	firstFD = listenerFd(t, l)
 
 	ourPID := strconv.Itoa(os.Getpid())
@@ -176,6 +177,7 @@ func sameAddr(a, b net.Addr) bool {
 
 func TestOneSocket(t *testing.T) {
 	l := newListener(t)
+	defer l.Close()
 	firstFD = listenerFd(t, l)
 
 	setenv(strconv.Itoa(os.Getpid()), "1", "name")
@@ -238,6 +240,8 @@ func TestManySockets(t *testing.T) {
 		l1 = newListener(t)
 		f0 = listenerFd(t, l0)
 		f1 = listenerFd(t, l1)
+		defer l0.Close()
+		defer l1.Close()
 		t.Logf("Looping for FDs: %d %d", f0, f1)
 	}
 
@@ -329,6 +333,7 @@ func TestManySockets(t *testing.T) {
 
 func TestListen(t *testing.T) {
 	orig := newListener(t)
+	defer orig.Close()
 	firstFD = listenerFd(t, orig)
 	setenv(strconv.Itoa(os.Getpid()), "1", "name")
 
