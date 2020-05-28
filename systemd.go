@@ -107,10 +107,10 @@ func parse() {
 	os.Unsetenv("LISTEN_FDNAMES")
 }
 
-// Listeners returns a map of listeners for the file descriptors passed by
-// systemd via environment variables.
+// Listeners returns net.Listeners corresponding to the file descriptors
+// passed by systemd via environment variables.
 //
-// It returns a map of the form (file descriptor name -> slice of listeners).
+// It returns a map of the form (file descriptor name -> []net.Listener).
 //
 // The file descriptor name comes from the "FileDescriptorName=" option in the
 // systemd socket unit. Multiple socket units can have the same name, hence
@@ -128,9 +128,10 @@ func Listeners() (map[string][]net.Listener, error) {
 	return listeners, parseError
 }
 
-// OneListener returns a listener for the first systemd socket with the given
-// name. If there are none, the listener and error will both be nil. An error
-// will be returned only if there were issues parsing the file descriptors.
+// OneListener returns a net.Listener for the first systemd socket with the
+// given name. If there are none, the listener and error will both be nil. An
+// error will be returned only if there were issues parsing the file
+// descriptors.
 //
 // This function can be convenient for simple callers where you know there's
 // only one file descriptor being passed with the given name.
@@ -149,7 +150,7 @@ func OneListener(name string) (net.Listener, error) {
 	return lis[0], nil
 }
 
-// Listen returns a listener for the given address, similar to net.Listen.
+// Listen returns a net.Listener for the given address, similar to net.Listen.
 //
 // If the address begins with "&" it is interpreted as a systemd socket being
 // passed.  For example, using "&http" would mean we expect a systemd socket
@@ -176,12 +177,26 @@ func Listen(netw, laddr string) (net.Listener, error) {
 	}
 }
 
-// Files returns a map of files for the file descriptors passed by
-// systemd via environment variables.
+// Files returns the open files passed by systemd via environment variables.
 //
-// Normally you would use Listeners instead; however, this is useful if you
-// need more fine-grained control over listener creation, for example if you
-// need to create packet connections from them.
+// It returns a map of the form (file descriptor name -> []*os.File).
+//
+// The file descriptor name comes from the "FileDescriptorName=" option in the
+// systemd socket unit. Multiple socket units can have the same name, hence
+// the slice of listeners for each name.
+//
+// Ideally you should not need to call this more than once. If you do, the
+// same files will be returned, as repeated calls to this function will return
+// the same results: the parsing is done only once, and the results are saved
+// and reused.
+//
+// See sd_listen_fds(3) and sd_listen_fds_with_names(3) for more details on
+// how the passing works.
+//
+// Normally you would use Listeners instead; however, access to the file
+// descriptors can be useful if you need more fine-grained control over
+// listener creation, for example if you need to create packet connections
+// from them.
 func Files() (map[string][]*os.File, error) {
 	parse()
 	return files, parseError
